@@ -12,7 +12,7 @@ module Lib
 
 import Control.Monad.State.Lazy (State, evalState)
 import Data.Bifunctor (first)
--- import Data.Foldable (for_)
+import Data.List (intercalate)
 import Data.Maybe (fromMaybe)
 import Numeric.Natural (Natural)
 import Optics.State (assign, modifying, use)
@@ -108,9 +108,9 @@ instance DefaultOrdered ModuleStats where
 
 data TraverserState
   = TraverserState
-  { _currentPath    :: FilePath
-  , _currentPackage :: Maybe FilePath
-  , _currentModule  :: Maybe FilePath
+  { _currentPath    :: [FileName]
+  , _currentPackage :: Maybe [FileName]
+  , _currentModule  :: Maybe [FileName]
   }
 
 makeLenses ''TraverserState
@@ -135,7 +135,7 @@ foldTree (:/){ dirTree } = evalState (fmap concat $ traverse go $ dropTopLevel d
     
     initState :: TraverserState
     initState = TraverserState
-      { _currentPath = ""
+      { _currentPath = []
       , _currentPackage = Nothing
       , _currentModule  = Nothing
       }
@@ -148,7 +148,7 @@ foldTree (:/){ dirTree } = evalState (fmap concat $ traverse go $ dropTopLevel d
         dirType <- determineDirectoryType name
         enterDirectory name dirType
         result <- concat <$> traverse go contents
-        leaveDirectory name dirType
+        leaveDirectory dirType
         pure result
 
     signalError :: FileName -> a -> b
@@ -158,10 +158,13 @@ foldTree (:/){ dirTree } = evalState (fmap concat $ traverse go $ dropTopLevel d
     processFile name = \case
       Just stats -> do
         maybePackage <- use currentPackage
-        let packageDir = fromMaybe (error "stats file not within package") maybePackage
+        let packageDir = renderPath
+                       $ fromMaybe (error "stats file not within package") maybePackage
         maybeModule <- use currentModule
-        let modulePath = fromMaybe (error "stats file not within module") maybeModule
-            moduleName = modulePath </> FP.dropExtensions name
+        let modulePath = renderPath
+                       $ fromMaybe (error "stats file not within module") maybeModule
+            moduleFileName = flip FP.addExtension "hs" $ FP.dropExtensions name
+            moduleName = modulePath </> moduleFileName
             moduleStats = ModuleStats{ packageDir, moduleName, stats }
         pure [moduleStats]
       Nothing -> pure []
@@ -185,18 +188,18 @@ foldTree (:/){ dirTree } = evalState (fmap concat $ traverse go $ dropTopLevel d
       WithinModule -> pushModuleDir name *> pushDir name
       Other        -> pushDir name
 
-    leaveDirectory :: FileName -> DirectoryType -> TreeTraverser ()
-    leaveDirectory name = \case
-      PackageRoot  -> popDir name *> unsetCurrentPackage
-      ModuleRoot   -> popDir name *> unsetModuleRoot
-      WithinModule -> popDir name *> popModuleDir name
-      Other        -> popDir name
+    leaveDirectory :: DirectoryType -> TreeTraverser ()
+    leaveDirectory = \case
+      PackageRoot  -> popDir *> unsetCurrentPackage
+      ModuleRoot   -> popDir *> unsetModuleRoot
+      WithinModule -> popDir *> popModuleDir
+      Other        -> popDir
 
     pushDir :: FileName -> TreeTraverser ()
     pushDir name = modifying currentPath (pushPath name) 
 
-    popDir :: FileName -> TreeTraverser ()
-    popDir name = modifying currentPath (popPath name)
+    popDir :: TreeTraverser ()
+    popDir = modifying currentPath popPath
 
     setCurrentPackage :: TreeTraverser ()
     setCurrentPackage = do
@@ -207,24 +210,25 @@ foldTree (:/){ dirTree } = evalState (fmap concat $ traverse go $ dropTopLevel d
     unsetCurrentPackage = assign currentPackage Nothing
 
     setModuleRoot :: TreeTraverser ()
-    setModuleRoot = assign currentModule (Just "")
+    setModuleRoot = assign currentModule (Just [])
 
     pushModuleDir :: FileName -> TreeTraverser ()
     pushModuleDir name = modifying currentModule (fmap (pushPath name))
 
-    popModuleDir :: FileName -> TreeTraverser ()
-    popModuleDir name = modifying currentModule (fmap (popPath name))
+    popModuleDir :: TreeTraverser ()
+    popModuleDir = modifying currentModule (fmap popPath)
 
     unsetModuleRoot :: TreeTraverser ()
     unsetModuleRoot = assign currentModule Nothing
 
-    pushPath :: FileName -> FilePath -> FilePath
-    pushPath name = \case
-      []   -> name
-      path -> path ++ "/" ++ name 
+    pushPath :: FileName -> [FileName] -> [FileName]
+    pushPath = (:)
 
-    popPath :: FileName -> FilePath -> FilePath
-    popPath name path = take (length path - length name - 1) path
+    popPath :: [FileName] -> [FileName]
+    popPath = tail
+
+    renderPath :: [FileName] -> FilePath
+    renderPath = intercalate "/" . reverse
 
 readStats :: FilePath -> IO [ModuleStats] 
 readStats = fmap foldTree . readDirectoryWithL processFile
