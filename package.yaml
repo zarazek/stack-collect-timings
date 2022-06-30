@@ -1,0 +1,51 @@
+name:                stack-collect-timings
+version:             0.1.0.0
+github:              "zarazek/stack-collect-timings"
+license:             BSD3
+author:              "Wojciech Wiśniewski"
+maintainer:          "wojciech.wisniewki@op.pl"
+copyright:           "2022 Wojciech Wiśniewski"
+
+extra-source-files:
+- README.md
+- ChangeLog.md
+
+# Metadata used when publishing your package
+# synopsis:            Short description of your package
+# category:            Web
+
+# To avoid duplicated efforts in documentation and dealing with the
+# complications of embedding Haddock markup inside cabal files, it is
+# common to point users to the README.md file.
+description:         Tool for collecting compilation time statistics for stack (Haskell) projects. Refer to README <https://github.com/zarazek/stack-collect-timings#readme> for further details.
+
+dependencies:
+- base >= 4.7 && < 5
+
+ghc-options:
+- -Wall
+- -Werror
+
+library:
+  source-dirs: src
+  dependencies:
+  - directory-tree
+  - filepath
+  - mtl
+  - optics
+  - optics-th
+  - cassava
+
+executables:
+  collect-timings-exe:
+    main:                Main.hs
+    source-dirs:         app
+    ghc-options:
+    - -threaded
+    - -rtsopts
+    - -with-rtsopts=-N4
+    dependencies:
+    - stack-collect-timings
+    - cassava
+    - bytestring
+
